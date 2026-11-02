@@ -51,6 +51,13 @@ run() {
   "$@" 2>&1 | sed 's/^/    /'
 }
 
+# run_as "label" cmd...: like run, but show a readable label instead of cmd.
+run_as() {
+  printf "%s  \$ %s%s\n" "$C_YELLOW" "$1" "$C_RESET"
+  shift
+  "$@" 2>&1 | sed "s/^/    /"
+}
+
 ok() { printf '%s  ✔ %s%s\n' "$C_GREEN" "$*" "$C_RESET"; }
 warn() { printf '%s  ! %s%s\n' "$C_YELLOW" "$*" "$C_RESET"; }
 die() {

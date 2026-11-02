@@ -110,6 +110,10 @@ mon_cluster_log_to_file = false
 osd_pool_default_size = 3
 osd_pool_default_min_size = 2
 osd_crush_chooseleaf_type = 0
+# Failure reports must come from 2 distinct subtrees at this level (default:
+# host). All OSDs share one host bucket, so count reporters per OSD instead,
+# or a dead OSD would only be noticed after the 900s beacon timeout.
+mon_osd_reporter_subtree_level = osd
 
 # Demo-friendly timings: a down OSD is marked "out" after 60s (default 600s).
 mon_osd_down_out_interval = 60
