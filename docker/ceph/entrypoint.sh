@@ -217,6 +217,8 @@ run_rgw() {
 # ---------------------------------------------------------------------------
 run_init() {
   wait_for_cluster
+  # Also in ceph.conf, but mgr modules (e.g. volumes) read the central config DB.
+  ceph config set mon mon_allow_pool_delete true
   log "enabling mgr modules: dashboard, prometheus"
   ceph mgr module enable dashboard
   ceph mgr module enable prometheus
