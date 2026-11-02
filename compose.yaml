@@ -1,0 +1,160 @@
+# Ceph showcase: a real multi-daemon Ceph cluster on one Docker host.
+# Every Ceph container runs the official quay.io/ceph/ceph image with the
+# same entrypoint script; the command picks the daemon role.
+name: ceph-showcase
+
+x-ceph: &ceph
+  image: ${CEPH_IMAGE:-quay.io/ceph/ceph:v20.2.5@sha256:4337ac8ac81d40df136e5eac92ca53bb52360a5e039f3d1f7935e729eb5ef42c}
+  entrypoint: ["/opt/showcase/entrypoint.sh"]
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 30s
+  environment: &ceph-env
+    CEPH_NET_PREFIX: ${CEPH_NET_PREFIX:-10.250.0}
+  volumes:
+    - ceph-etc:/etc/ceph:ro
+    - ./docker/ceph:/opt/showcase:ro
+
+x-healthcheck: &healthcheck
+  interval: 30s
+  timeout: 10s
+  retries: 3
+  start_period: 120s
+  start_interval: 2s
+
+x-after-mons: &after-mons
+  mon-a: { condition: service_healthy }
+  mon-b: { condition: service_healthy }
+  mon-c: { condition: service_healthy }
+
+x-after-osds: &after-osds
+  osd-0: { condition: service_healthy }
+  osd-1: { condition: service_healthy }
+  osd-2: { condition: service_healthy }
+
+services:
+  # One-shot: fsid, keyrings, monmap, ceph.conf -> ceph-etc volume.
+  bootstrap:
+    <<: *ceph
+    command: ["bootstrap"]
+    restart: "no"
+    network_mode: none
+    volumes:
+      - ceph-etc:/etc/ceph
+      - ./docker/ceph:/opt/showcase:ro
+
+  # --- MON: cluster maps + quorum (Paxos). 3 so one can fail. --------------
+  mon-a: &mon
+    <<: *ceph
+    command: ["mon"]
+    hostname: mon-a
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: a }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "mon-a:/var/lib/ceph/mon"]
+    networks: { ceph: { ipv4_address: "${CEPH_NET_PREFIX:-10.250.0}.11" } }
+    mem_limit: 384m
+    depends_on: { bootstrap: { condition: service_completed_successfully } }
+    healthcheck: { <<: *healthcheck, test: ["CMD", "/opt/showcase/entrypoint.sh", "health", "mon"] }
+  mon-b:
+    <<: *mon
+    hostname: mon-b
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: b }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "mon-b:/var/lib/ceph/mon"]
+    networks: { ceph: { ipv4_address: "${CEPH_NET_PREFIX:-10.250.0}.12" } }
+  mon-c:
+    <<: *mon
+    hostname: mon-c
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: c }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "mon-c:/var/lib/ceph/mon"]
+    networks: { ceph: { ipv4_address: "${CEPH_NET_PREFIX:-10.250.0}.13" } }
+
+  # --- MGR: dashboard, prometheus exporter, PG autoscaler, etc. ------------
+  mgr:
+    <<: *ceph
+    command: ["mgr"]
+    hostname: mgr
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: x }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "mgr:/var/lib/ceph/mgr"]
+    networks: [ceph]
+    ports:
+      - "127.0.0.1:${DASHBOARD_PORT:-18443}:8443"
+    mem_limit: 768m
+    depends_on: *after-mons
+    healthcheck: { <<: *healthcheck, test: ["CMD", "/opt/showcase/entrypoint.sh", "health", "mgr"] }
+
+  # --- OSD: stores the data. File-backed BlueStore, no real disks. ---------
+  osd-0: &osd
+    <<: *ceph
+    command: ["osd"]
+    hostname: osd-0
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: "0" }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "osd-0:/var/lib/ceph/osd"]
+    networks: [ceph]
+    mem_limit: 1g
+    depends_on: *after-mons
+    healthcheck: { <<: *healthcheck, test: ["CMD", "/opt/showcase/entrypoint.sh", "health", "osd"] }
+  osd-1:
+    <<: *osd
+    hostname: osd-1
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: "1" }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "osd-1:/var/lib/ceph/osd"]
+  osd-2:
+    <<: *osd
+    hostname: osd-2
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: "2" }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "osd-2:/var/lib/ceph/osd"]
+
+  # --- MDS: CephFS metadata (directories, inodes, caps). -------------------
+  mds:
+    <<: *ceph
+    command: ["mds"]
+    hostname: mds
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: a }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "mds:/var/lib/ceph/mds"]
+    networks: [ceph]
+    mem_limit: 512m
+    depends_on: *after-osds
+    healthcheck: { <<: *healthcheck, test: ["CMD", "/opt/showcase/entrypoint.sh", "health", "mds"] }
+
+  # --- RGW: S3/Swift HTTP gateway on top of RADOS. -------------------------
+  rgw:
+    <<: *ceph
+    command: ["rgw"]
+    hostname: rgw
+    environment: { <<: *ceph-env, CEPH_DAEMON_ID: gw }
+    volumes: ["ceph-etc:/etc/ceph:ro", "./docker/ceph:/opt/showcase:ro", "rgw:/var/lib/ceph/radosgw"]
+    networks: [ceph]
+    ports:
+      - "127.0.0.1:${RGW_PORT:-17480}:7480"
+    mem_limit: 512m
+    depends_on: *after-osds
+    healthcheck: { <<: *healthcheck, test: ["CMD", "/opt/showcase/entrypoint.sh", "health", "rgw"] }
+
+  # One-shot: enable dashboard + prometheus modules, create dashboard user.
+  init:
+    <<: *ceph
+    command: ["init"]
+    restart: "no"
+    networks: [ceph]
+    depends_on:
+      <<: *after-osds
+      mgr: { condition: service_healthy }
+
+networks:
+  ceph:
+    ipam:
+      config:
+        - subnet: "${CEPH_NET_PREFIX:-10.250.0}.0/24"
+          # Dynamic IPs from the upper half; mons own static .11-.13.
+          ip_range: "${CEPH_NET_PREFIX:-10.250.0}.128/25"
+
+volumes:
+  ceph-etc:
+  mon-a:
+  mon-b:
+  mon-c:
+  mgr:
+  osd-0:
+  osd-1:
+  osd-2:
+  mds:
+  rgw:
