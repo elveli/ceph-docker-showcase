@@ -143,6 +143,22 @@ services:
       - s3-work:/work
       - ./docker/aws:/aws:ro
 
+  # Two Ceph client "machines" for the RBD and CephFS demos. Privileged
+  # because rbd-nbd needs /dev/nbd* + mount, and ceph-fuse needs /dev/fuse.
+  client-a: &client
+    <<: *ceph
+    entrypoint: ["sleep", "infinity"]
+    command: []
+    hostname: client-a
+    profiles: [clients]
+    privileged: true
+    restart: "no"
+    networks: [ceph]
+    stop_grace_period: 5s
+  client-b:
+    <<: *client
+    hostname: client-b
+
   # One-shot: enable dashboard + prometheus modules, create dashboard user.
   init:
     <<: *ceph

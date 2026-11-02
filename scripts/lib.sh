@@ -77,3 +77,19 @@ wait_for() {
 }
 
 health_is() { [[ "$(ceph health 2>/dev/null)" == "$1"* ]]; }
+
+# Client containers (profile "clients") act as separate client machines.
+ensure_clients() {
+  compose --progress quiet --profile clients up -d client-a client-b
+}
+
+# on NAME "shell cmd": run in a client container, echoing the command first.
+on() {
+  local name="$1"
+  shift
+  printf '%s  [%s]$ %s%s\n' "$C_YELLOW" "$name" "$*" "$C_RESET"
+  compose exec -T "$name" bash -euo pipefail -c "$*" 2>&1 | sed 's/^/    /'
+}
+
+# on_q NAME "shell cmd": same, but silent; for capturing values.
+on_q() { compose exec -T "$1" bash -euo pipefail -c "$2"; }
