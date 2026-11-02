@@ -1,0 +1,7 @@
+# AWS CLI profile for talking to Ceph RGW. Endpoint and credentials come from
+# the environment (see compose.yaml and scripts/demo-object.sh).
+[default]
+region = us-east-1
+output = json
+s3 =
+    addressing_style = path

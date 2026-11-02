@@ -129,6 +129,20 @@ services:
     depends_on: *after-osds
     healthcheck: { <<: *healthcheck, test: ["CMD", "/opt/showcase/entrypoint.sh", "health", "rgw"] }
 
+  # --- Clients (started on demand by the demos) -------------------------
+  # AWS CLI v2 pointed at RGW: proves stock S3 tooling works unmodified.
+  s3:
+    image: ${AWS_CLI_IMAGE:-amazon/aws-cli:2.39.0}
+    profiles: [tools]
+    networks: [ceph]
+    working_dir: /work
+    environment:
+      AWS_ENDPOINT_URL: http://rgw:7480
+      AWS_CONFIG_FILE: /aws/config
+    volumes:
+      - s3-work:/work
+      - ./docker/aws:/aws:ro
+
   # One-shot: enable dashboard + prometheus modules, create dashboard user.
   init:
     <<: *ceph
@@ -158,3 +172,4 @@ volumes:
   osd-2:
   mds:
   rgw:
+  s3-work:
