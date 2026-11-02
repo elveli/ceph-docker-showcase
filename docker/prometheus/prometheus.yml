@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # The mgr prometheus module: cluster, pool, PG and OSD-state metrics.
+  - job_name: ceph
+    honor_labels: true
+    static_configs:
+      - targets: ["mgr:9283"]
