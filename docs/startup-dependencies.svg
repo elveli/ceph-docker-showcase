@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 720" width="1200" height="720" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title>ceph-docker-showcase startup dependency graph</title>
+  <desc>Docker Compose depends_on graph: bootstrap must complete, then the three MONs must be healthy, then MGR and OSDs, then MDS, RGW and the init job. Prometheus and Grafana are an optional profile; s3 and the clients are started on demand by the demos.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#16a34a"/>
+    </marker>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/>
+    </marker>
+    <style>
+      .t  { font-size: 14px; font-weight: 600; fill: #0f172a; }
+      .s  { font-size: 11.5px; fill: #334155; }
+      .xs { font-size: 10.5px; fill: #475569; }
+      .h  { font-size: 12px; font-weight: 700; letter-spacing: .04em; fill: #475569; text-transform: uppercase; }
+      .title { font-size: 20px; font-weight: 700; fill: #0f172a; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px; fill: #334155; }
+      .lbl { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10px; fill: #475569; }
+      .box { fill: #ffffff; stroke: #94a3b8; }
+      .oneshot { fill: #f0fdf4; stroke: #16a34a; stroke-dasharray: 4 3; }
+      .group { fill: #f1f5f9; stroke: #cbd5e1; }
+      .healthy { stroke: #475569; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+      .done { stroke: #16a34a; stroke-width: 1.8; fill: none; marker-end: url(#arrow-green); }
+      .profile { stroke: #7c3aed; stroke-width: 1.6; fill: none; stroke-dasharray: 6 4; marker-end: url(#arrow-purple); }
+    </style>
+  </defs>
+
+  <rect width="1200" height="720" rx="14" fill="#ffffff"/>
+  <text x="32" y="40" class="title">Startup dependency graph</text>
+  <text x="32" y="60" class="s">depends_on in compose.yaml: each wave starts only after the previous one is healthy (or, for one-shot jobs, has exited 0)</text>
+
+  <!-- wave headers -->
+  <text x="40"   y="100" class="h">1 · bootstrap</text>
+  <text x="260"  y="100" class="h">2 · quorum</text>
+  <text x="500"  y="100" class="h">3 · core daemons</text>
+  <text x="760"  y="100" class="h">4 · services + config</text>
+  <text x="990"  y="100" class="h">optional profile</text>
+  <line x1="32" y1="108" x2="1168" y2="108" stroke="#e2e8f0"/>
+
+  <!-- 1 · bootstrap -->
+  <rect x="40" y="270" width="170" height="96" rx="8" class="oneshot"/>
+  <text x="54" y="292" class="t">bootstrap</text>
+  <text x="54" y="309" class="xs">one-shot, network: none</text>
+  <text x="54" y="328" class="mono">fsid · keyrings</text>
+  <text x="54" y="343" class="mono">monmap · ceph.conf</text>
+  <text x="54" y="358" class="mono">→ ceph-etc volume</text>
+
+  <!-- 2 · MONs -->
+  <rect x="260" y="200" width="190" height="236" rx="10" class="group"/>
+  <text x="274" y="221" class="h">MONs · all 3</text>
+  <rect x="274" y="232" width="162" height="56" rx="7" class="box"/>
+  <text x="286" y="254" class="t">mon-a</text>
+  <text x="286" y="274" class="mono">10.250.0.11</text>
+  <rect x="274" y="298" width="162" height="56" rx="7" class="box"/>
+  <text x="286" y="320" class="t">mon-b</text>
+  <text x="286" y="340" class="mono">10.250.0.12</text>
+  <rect x="274" y="364" width="162" height="56" rx="7" class="box"/>
+  <text x="286" y="386" class="t">mon-c</text>
+  <text x="286" y="406" class="mono">10.250.0.13</text>
+  <text x="260" y="454" class="xs">healthy = mon_status state</text>
+  <text x="260" y="468" class="mono">leader | peon (in quorum)</text>
+
+  <!-- 3 · MGR + OSDs -->
+  <rect x="500" y="130" width="200" height="88" rx="8" class="box"/>
+  <text x="514" y="152" class="t">mgr</text>
+  <text x="514" y="170" class="xs">dashboard · prometheus · volumes</text>
+  <text x="514" y="190" class="xs">healthy = admin socket answers</text>
+  <text x="514" y="206" class="mono">:8443 → localhost:18443</text>
+
+  <rect x="500" y="262" width="200" height="228" rx="10" class="group"/>
+  <text x="514" y="283" class="h">OSDs · all 3</text>
+  <rect x="514" y="294" width="172" height="52" rx="7" class="box"/>
+  <text x="526" y="315" class="t">osd-0</text>
+  <text x="526" y="333" class="mono">5 GiB sparse file</text>
+  <rect x="514" y="354" width="172" height="52" rx="7" class="box"/>
+  <text x="526" y="375" class="t">osd-1</text>
+  <text x="526" y="393" class="mono">5 GiB sparse file</text>
+  <rect x="514" y="414" width="172" height="52" rx="7" class="box"/>
+  <text x="526" y="435" class="t">osd-2</text>
+  <text x="526" y="453" class="mono">5 GiB sparse file</text>
+  <text x="500" y="508" class="xs">healthy = OSD status</text>
+  <text x="500" y="522" class="mono">"state": "active"</text>
+
+  <!-- 4 · MDS, RGW, init -->
+  <rect x="760" y="150" width="190" height="96" rx="8" class="oneshot"/>
+  <text x="774" y="172" class="t">init</text>
+  <text x="774" y="189" class="xs">one-shot, needs mgr + OSDs</text>
+  <text x="774" y="207" class="mono">mgr modules · TLS cert</text>
+  <text x="774" y="222" class="mono">dashboard admin user</text>
+  <text x="774" y="237" class="mono">mon_allow_pool_delete</text>
+
+  <rect x="760" y="282" width="190" height="64" rx="8" class="box"/>
+  <text x="774" y="304" class="t">mds</text>
+  <text x="774" y="322" class="xs">CephFS metadata</text>
+  <text x="774" y="337" class="mono">up:active | up:standby</text>
+
+  <rect x="760" y="372" width="190" height="64" rx="8" class="box"/>
+  <text x="774" y="394" class="t">rgw</text>
+  <text x="774" y="412" class="xs">S3 gateway · HTTP probe</text>
+  <text x="774" y="427" class="mono">:7480 → localhost:17480</text>
+
+  <!-- optional: observability -->
+  <rect x="990" y="140" width="180" height="210" rx="10" fill="#faf5ff" stroke="#c4b5fd" stroke-dasharray="5 4"/>
+  <text x="1004" y="161" class="h" style="fill:#6d28d9">observability</text>
+  <rect x="1004" y="174" width="152" height="60" rx="7" class="box"/>
+  <text x="1016" y="196" class="t">prometheus</text>
+  <text x="1016" y="214" class="mono">scrapes mgr:9283</text>
+  <text x="1016" y="227" class="mono">/-/ready</text>
+  <rect x="1004" y="270" width="152" height="60" rx="7" class="box"/>
+  <text x="1016" y="292" class="t">grafana</text>
+  <text x="1016" y="310" class="mono">/api/health</text>
+  <text x="1016" y="323" class="mono">:3000 → :13000</text>
+  <text x="990" y="370" class="mono">make up-observability</text>
+
+  <!-- edges: bootstrap → MONs (completed_successfully) -->
+  <path d="M210,318 H256" class="done"/>
+  <text x="214" y="310" class="lbl" style="fill:#16a34a">exit 0</text>
+
+  <!-- MONs → mgr, MONs → OSDs -->
+  <path d="M450,250 C475,250 475,174 496,174" class="healthy"/>
+  <path d="M450,376 H496" class="healthy"/>
+
+  <!-- mgr → init, OSDs → init / mds / rgw -->
+  <path d="M700,180 H756" class="healthy"/>
+  <path d="M700,286 C730,286 730,226 756,226" class="healthy"/>
+  <path d="M700,314 H756" class="healthy"/>
+  <path d="M700,404 H756" class="healthy"/>
+
+  <!-- mgr → prometheus → grafana (profile) -->
+  <path d="M600,130 V122 H1130 V170" class="profile"/>
+  <path d="M1080,234 V266" class="profile"/>
+
+  <!-- on-demand services -->
+  <rect x="32" y="560" width="1136" height="104" rx="10" fill="#f8fafc" stroke="#cbd5e1"/>
+  <text x="48" y="582" class="h">Started on demand by the demo scripts (no depends_on)</text>
+  <rect x="48" y="594" width="250" height="56" rx="7" class="box"/>
+  <text x="60" y="615" class="t">s3 <tspan class="xs">· profile tools</tspan></text>
+  <text x="60" y="636" class="mono">compose run --rm s3 (AWS CLI → rgw)</text>
+  <rect x="314" y="594" width="300" height="56" rx="7" class="box"/>
+  <text x="326" y="615" class="t">client-a / client-b <tspan class="xs">· profile clients</tspan></text>
+  <text x="326" y="636" class="mono">privileged: rbd-nbd, ceph-fuse</text>
+  <text x="640" y="610" class="s"><tspan font-weight="600">make up</tspan> = compose up --wait, then status.sh --summary</text>
+  <text x="640" y="628" class="s">waits for init to exit 0 and for HEALTH_OK with all PGs active+clean</text>
+  <text x="640" y="646" class="s">before it prints the endpoints. Demos run only after that.</text>
+
+  <!-- legend -->
+  <g transform="translate(32,690)">
+    <path d="M0,0 H36" class="done"/>
+    <text x="44" y="4" class="xs">service_completed_successfully (one-shot exited 0)</text>
+    <path d="M330,0 H366" class="healthy"/>
+    <text x="374" y="4" class="xs">service_healthy (healthcheck passes; each daemon is probed over its admin socket)</text>
+    <path d="M830,0 H866" class="profile"/>
+    <text x="874" y="4" class="xs">optional profile, service_healthy</text>
+  </g>
+</svg>

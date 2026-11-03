@@ -14,7 +14,8 @@ Nothing is mocked. When something can't work on Docker Desktop (the kernel RBD a
 shows it failing and uses the closest real alternative (`rbd-nbd`, `ceph-fuse`).
 
 It's written for engineers who know containers, Kubernetes and AWS but are new to Ceph. Ceph terms are
-explained where they first matter, with AWS analogies where they help.
+explained where they first matter, with AWS analogies where they help. New to the acronyms? Start with
+[what RADOS is](#first-what-is-rados) and the [glossary](#glossary).
 
 ![Architecture](docs/architecture.svg)
 
@@ -24,7 +25,7 @@ explained where they first matter, with AWS analogies where they help.
 
 - [Quickstart](#quickstart)
 - [What the demos show](#what-the-demos-show)
-- [Ceph concepts in this repo](#ceph-concepts-in-this-repo)
+- [Ceph concepts in this repo](#ceph-concepts-in-this-repo) (what RADOS is, plus a glossary)
 - [Design decisions](#design-decisions)
 - [Docker Desktop constraints and how they're handled](#docker-desktop-constraints-and-how-theyre-handled)
 - [Observability](#observability)
@@ -169,6 +170,31 @@ loses power would be detected by missed heartbeats after `osd_heartbeat_grace` (
 
 ## Ceph concepts in this repo
 
+### First, what is RADOS?
+
+**RADOS** (Reliable Autonomic Distributed Object Store) *is* Ceph. Everything else is a client of it.
+RADOS is a flat, replicated object store: you put a named blob of bytes into a pool, and it is copied to
+several OSDs, kept consistent and repaired when a disk dies, with no central metadata server in the data path.
+"Autonomic" means the OSDs do their own replication, failure detection and recovery between each other, so
+clients don't. RADOS objects are not S3 objects. They have no HTTP API, buckets or ACLs. Think of RADOS as
+the internal key→blob layer underneath three products:
+
+```text
+   S3 / Swift apps        VMs, databases          shared POSIX dirs
+         │                     │                         │
+   RGW (object)          RBD (block)              CephFS (file)  ← + MDS for metadata
+         └─────────────────────┼─────────────────────────┘
+                     librados (client library)
+                               │
+        RADOS: MONs (maps) + OSDs (data) + CRUSH (placement)
+```
+
+`make demo-placement` and `make demo-failure` use `rados put/get` to talk to RADOS directly, with none of the
+layers above it. The object, block and file demos each end by listing the RADOS objects behind an S3 object,
+an RBD image or a CephFS file.
+
+### Daemons and core ideas
+
 | Concept | One-line explanation | Runs in |
 |---|---|---|
 | **MON** (monitor) | Keeps the authoritative cluster maps (who's up, where data goes, auth) and agrees on them by Paxos quorum. 2 of 3 must be alive. | `mon-a`, `mon-b`, `mon-c` |
@@ -176,13 +202,58 @@ loses power would be detected by missed heartbeats after `osd_heartbeat_grace` (
 | **OSD** (object storage daemon) | Stores the data on one device and handles replication, recovery and scrubbing for its share of PGs. Here each OSD's "device" is a sparse file. | `osd-0`, `osd-1`, `osd-2` |
 | **MDS** (metadata server) | Owns the CephFS namespace (directories, inodes, permissions) and hands out capabilities so clients cache coherently. File *data* bypasses it and goes straight to the OSDs. | `mds` |
 | **RGW** (RADOS Gateway) | Stateless HTTP gateway that speaks S3 and Swift and stores everything as RADOS objects. A self-hosted S3 endpoint. | `rgw` |
+| **RBD** (RADOS Block Device) | A virtual disk striped across 4 MiB RADOS objects, with thin provisioning, snapshots and clones. Ceph's EBS. No daemon: the client library does the striping. | `client-a` via `rbd-nbd` |
+| **CephFS** (Ceph File System) | A POSIX filesystem whose metadata lives in the MDS and whose file contents are RADOS objects. Ceph's EFS. | `mds` plus `client-a`/`client-b` via `ceph-fuse` |
 | **PG** (placement group) | A shard of a pool. Objects hash into PGs, and Ceph replicates, recovers and peers per PG rather than per object, which keeps the bookkeeping tractable. | Inside the OSDs; see `make demo-placement` |
-| **CRUSH** | The deterministic placement algorithm. Given a PG and the cluster map, it computes the ordered list of OSDs (primary first) and honors failure domains. No lookup table exists. | Computed by every client and daemon |
+| **CRUSH** (Controlled Replication Under Scalable Hashing) | The deterministic placement algorithm. Given a PG and the cluster map, it computes the ordered list of OSDs (primary first) and honors failure domains. No lookup table exists. | Computed by every client and daemon |
 
 Also worth knowing: a **pool** is a namespace with its own replication settings and PG count (think of it
 as a bucket-of-buckets policy boundary). **cephx** is Ceph's shared-secret auth, with per-identity
 capabilities much like scoped IAM policies. **BlueStore** is the OSD backend that writes directly to a raw
 block device without a filesystem underneath.
+
+### Glossary
+
+Every Ceph term and acronym used in this repo, A–Z.
+
+| Term | Meaning |
+|---|---|
+| **active+clean** | The healthy PG state: the PG is serving I/O (*active*) and every replica is present and up to date (*clean*). `HEALTH_OK` needs all PGs here. |
+| **admin socket** (`.asok`) | A per-daemon Unix socket under `/var/run/ceph/` that answers local queries such as `status` and `config show` without going through the MONs. The healthchecks use it. |
+| **backfill** | Copying a whole PG to an OSD that didn't have it before, after CRUSH moved it. Compare *recovery*. |
+| **BlueStore** | The OSD storage backend. It manages a raw block device (here a sparse file) directly, with RocksDB for metadata. |
+| **caps** | Capabilities. In cephx they're the permissions on a key (`mon 'allow r', osd 'allow rw pool=x'`). In CephFS they're the MDS-granted leases that let clients cache file state. |
+| **CephFS** | Ceph File System. See above. |
+| **cephx** | Ceph's authentication protocol: shared secret keys plus per-entity caps. Entities are named like `client.admin`, `osd.0` and `mon.`. |
+| **config-key** | A small key/value store kept by the MONs. This repo keeps the generated dashboard password there (`showcase/dashboard-password`) so it's never written to the repo. |
+| **CRUSH** | Controlled Replication Under Scalable Hashing. See above. The **CRUSH map** is the hierarchy (root → host → osd) plus the rules that walk it. |
+| **degraded** | Fewer up-to-date copies exist than `size`, but I/O continues while at least `min_size` are available. |
+| **EC** (erasure coding) | An alternative to replication: data is split into k data chunks plus m parity chunks. Not used here, because it needs more OSDs than 3. |
+| **failure domain** | The CRUSH bucket type that replicas must not share (`host`, `rack`, …). This repo uses `osd` because there's only one host; see [Design decisions](#design-decisions). |
+| **FUSE** | Filesystem in Userspace. `ceph-fuse` implements CephFS in a user process because the Docker Desktop kernel has no `ceph` module. |
+| **fsid** | The cluster's UUID, generated once by `bootstrap`. Every daemon and client checks it. |
+| **HEALTH_OK / WARN / ERR** | The cluster's overall health summary (`ceph health`). `ceph health detail` says why. |
+| **keyring** | A file holding one or more cephx keys, for example `/etc/ceph/ceph.client.admin.keyring`. Generated at runtime and never committed. |
+| **librados / librbd** | Client libraries that every Ceph client links against: one for RADOS objects, one for RBD images. |
+| **LinuxKit** | The minimal Linux VM that Docker Desktop runs containers in. Its kernel decides which Ceph clients can work (NBD and FUSE yes, `rbd`/`ceph` modules no). |
+| **MDS / MGR / MON / OSD** | The daemons. See above. |
+| **min_size** | The minimum number of replicas that must be available for a PG to accept I/O (2 here). Below that the PG blocks rather than risk divergence. |
+| **monmap** | The list of MONs (names and addresses) plus the fsid. Built by `bootstrap` with `monmaptool`. |
+| **NBD** | Network Block Device, a kernel facility that `rbd-nbd` uses to expose an RBD image as `/dev/nbdX`. |
+| **out** | An OSD excluded from CRUSH placement. A *down* OSD becomes *out* after `mon_osd_down_out_interval` (60 s here). |
+| **Paxos** | The consensus algorithm the MONs use to agree on each new version of the cluster maps. |
+| **peering** | Replicas of a PG agreeing on its authoritative history after any change in membership. I/O to that PG pauses briefly. |
+| **PG** | Placement group. See above. |
+| **pool** | A logical partition of RADOS with its own `size`, `min_size`, PG count and CRUSH rule. |
+| **primary** | The first OSD in a PG's acting set. Clients send it all reads and writes, and it fans writes out to the replicas. |
+| **RADOS** | Reliable Autonomic Distributed Object Store. See [First, what is RADOS?](#first-what-is-rados). |
+| **RBD** | RADOS Block Device. See above. |
+| **recovery** | Bringing a returning OSD up to date by replaying only the objects that changed while it was away (from the PG log). |
+| **RGW** | RADOS Gateway. See above. |
+| **scrub / deep scrub** | Background consistency checks. A scrub compares metadata across replicas; a deep scrub reads and checksums every byte. |
+| **size** | The number of replicas per object (3 here). |
+| **Tentacle** | The codename of Ceph release 20.x. Releases are named alphabetically after cephalopods (Reef 18, Squid 19, Tentacle 20). |
+| **undersized** | A PG with fewer OSDs in its acting set than `size`, because CRUSH can't find enough eligible OSDs. This happens with 3 OSDs and one out. |
 
 ---
 
@@ -224,7 +295,7 @@ The dashboard password lives in the mon config-key store, and the demo's CephFS 
 Healthchecks ask each daemon over its **admin socket**: a mon must be `leader`/`peon`, an OSD `active`,
 an MDS `up:*`. RGW is checked over HTTP. They poll every 2 s during startup and every 30 s after that,
 because each check spawns the Python `ceph` CLI. `make up` also waits for the `init` job and HEALTH_OK
-before printing endpoints.
+before printing endpoints. See the [startup dependency graph](docs/startup-dependencies.svg).
 
 ### Networking
 
@@ -358,6 +429,7 @@ scripts read it.
 │       └── prometheus.yml          # scrapes mgr:9283
 ├── docs/
 │   ├── architecture.svg
+│   ├── startup-dependencies.svg    # compose depends_on graph
 │   └── grafana.png
 ├── scripts/
 │   ├── lib.sh                      # shared helpers: step/run/check output, ceph wrappers, waits
@@ -378,17 +450,7 @@ scripts read it.
 
 Startup dependency graph, as encoded in `compose.yaml`:
 
-```mermaid
-flowchart LR
-  B[bootstrap<br/><i>one-shot</i>] -->|completed| MA[mon-a] & MB[mon-b] & MC[mon-c]
-  MA & MB & MC -->|healthy| MGR[mgr]
-  MA & MB & MC -->|healthy| O0[osd-0] & O1[osd-1] & O2[osd-2]
-  O0 & O1 & O2 -->|healthy| MDS[mds] & RGW[rgw]
-  O0 & O1 & O2 & MGR -->|healthy| INIT[init<br/><i>one-shot</i>]
-  MGR -.->|profile: observability| P[prometheus] --> G[grafana]
-  S3[s3 · aws-cli<br/><i>profile: tools</i>] -.->|S3 API| RGW
-  CA[client-a / client-b<br/><i>profile: clients</i>] -.->|rbd-nbd, ceph-fuse| O0
-```
+![Startup dependency graph](docs/startup-dependencies.svg)
 
 ---
 
