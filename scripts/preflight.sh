@@ -53,21 +53,22 @@ else
   ok "CPUs $ncpu (min $MIN_CPUS)"
 fi
 
-# Free disk inside the Docker VM (where volumes live). The mon warns when its
-# data disk gets low, so check before we start.
+# Free disk inside the Docker VM (where volumes live). ceph-mon refuses to
+# start below mon_data_avail_crit (5% free), so check before we start. The
+# image is needed anyway; pull it so this check never gets skipped.
 images="$(compose config --images)"
 image="$(grep -m1 "quay.io/ceph/ceph" <<<"$images")"
-if docker image inspect "$image" >/dev/null 2>&1; then
-  avail_kib=$(docker run --rm --entrypoint df -v ceph-showcase-preflight:/probe "$image" -Pk /probe | awk 'NR==2 {print $4}')
-  docker volume rm ceph-showcase-preflight >/dev/null 2>&1 || true
-  avail_gib=$((avail_kib / 1024 / 1024))
-  if ((avail_gib < MIN_DISK_GIB)); then
-    fail "only ${avail_gib} GiB free in the Docker VM; need ${MIN_DISK_GIB} GiB (docker system prune, or raise the disk limit)"
-  else
-    ok "disk ${avail_gib} GiB free in the Docker VM (min ${MIN_DISK_GIB} GiB)"
-  fi
+if ! docker image inspect "$image" >/dev/null 2>&1; then
+  printf '    pulling %s for the disk check …\n' "${image%@*}"
+  docker pull -q "$image" >/dev/null
+fi
+avail_kib=$(docker run --rm --entrypoint df -v ceph-showcase-preflight:/probe "$image" -Pk /probe | awk 'NR==2 {print $4}')
+docker volume rm ceph-showcase-preflight >/dev/null 2>&1 || true
+avail_gib=$((avail_kib / 1024 / 1024))
+if ((avail_gib < MIN_DISK_GIB)); then
+  fail "only ${avail_gib} GiB free in the Docker VM; need ${MIN_DISK_GIB} GiB (docker system prune, or raise the disk limit)"
 else
-  warn "Ceph image not pulled yet; skipping the disk check (needs ~${MIN_DISK_GIB} GiB free)"
+  ok "disk ${avail_gib} GiB free in the Docker VM (min ${MIN_DISK_GIB} GiB)"
 fi
 
 # Ports: free, or already published by this project (re-running `make up`).

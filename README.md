@@ -611,6 +611,7 @@ Intel Mac, so arm64 is expected to work but hasn't been run end to end yet.
 | `preflight: Docker has X GiB memory` | Docker Desktop → Settings → Resources → Memory ≥ 6 GB (8 GB for observability). |
 | `port 18443 (DASHBOARD) is in use` | Set `DASHBOARD_PORT` (or `RGW_PORT`, `PROMETHEUS_PORT`, `GRAFANA_PORT`) in `.env`. |
 | `subnet 10.250.0.0/24 is already used` | Set `CEPH_NET_PREFIX=10.251.0` in `.env`, then `make clean && make up`. The monmap stores the mon IPs. |
+| `mon-a is unhealthy` straight after `make up`, and the mon log says `reached concerning levels of available storage space` | The disk holding Docker's volumes is below 5% free, so `ceph-mon` exits (code 28, ENOSPC). Free space as in the next row. `make preflight` checks for at least 10 GiB free. |
 | `HEALTH_WARN … mon … low on available space` | The Docker VM disk is nearly full: `docker system prune`, or raise the disk limit. |
 | A demo was interrupted (Ctrl-C) | Re-run it; every demo is idempotent. The failure demo restarts the killed OSD on exit, and the block demo unmaps its NBD device. |
 | Containers stuck in `starting` | `make logs S=mon-a` (or another service). A full reset is `make clean && make up`. |
