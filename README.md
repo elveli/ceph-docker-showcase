@@ -501,6 +501,7 @@ Intel Mac, so arm64 is expected to work but hasn't been run end to end yet.
 | Containers stuck in `starting` | `make logs S=mon-a` (or another service). A full reset is `make clean && make up`. |
 | Dashboard password | `make status`, or `docker compose exec mon-a ceph config-key get showcase/dashboard-password`. |
 | Need the raw Ceph CLI | `make shell`, then `ceph -s`, `ceph osd df`, `ceph pg dump pgs_brief`, `rados df`, `rbd ls -l`. |
+| http://localhost:17480 in a browser shows XML with `<ID>anonymous</ID>` and an empty `<Buckets/>` | Expected. Port 17480 is the raw S3 API, not a web UI. An unsigned browser request is treated as the `anonymous` user, which owns no buckets. The demo bucket `showcase` belongs to the RGW user `demo`. To browse it, use the dashboard (**Object → Buckets**) or run `make shell` then `radosgw-admin bucket list`. To use the S3 API from the Mac, export the demo user's keys (`radosgw-admin user info --uid=demo`) and run `aws --endpoint-url http://localhost:17480 s3 ls s3://showcase`. Only presigned URLs, like the one `make demo-object` prints, open directly in a browser. |
 | `rgw: 2 daemons active` right after a re-`up` | A recreated RGW's old session lingers for a few minutes and then disappears. Harmless. |
 
 ---
