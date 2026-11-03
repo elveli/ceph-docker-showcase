@@ -590,7 +590,7 @@
       "id": 12,
       "type": "timeseries",
       "title": "Throughput by pool",
-      "description": "Writes above zero, reads below. From the mgr prometheus module's per-pool counters.",
+      "description": "Writes above zero, reads below; idle pools hidden. From the mgr prometheus module's per-pool counters.",
       "datasource": {
         "type": "prometheus",
         "uid": "prometheus"
@@ -608,7 +608,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name) (rate(ceph_pool_wr_bytes[1m]) * on(pool_id) group_left(name) ceph_pool_metadata)",
+          "expr": "sum by (name) (rate(ceph_pool_wr_bytes[1m]) * on(pool_id) group_left(name) ceph_pool_metadata) > 0",
           "legendFormat": "write {{name}}"
         },
         {
@@ -617,7 +617,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "-sum by (name) (rate(ceph_pool_rd_bytes[1m]) * on(pool_id) group_left(name) ceph_pool_metadata)",
+          "expr": "-(sum by (name) (rate(ceph_pool_rd_bytes[1m]) * on(pool_id) group_left(name) ceph_pool_metadata) > 0)",
           "legendFormat": "read {{name}}"
         }
       ],
@@ -667,7 +667,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (name) (rate(ceph_pool_wr[1m]) * on(pool_id) group_left(name) ceph_pool_metadata)",
+          "expr": "sum by (name) (rate(ceph_pool_wr[1m]) * on(pool_id) group_left(name) ceph_pool_metadata) > 0",
           "legendFormat": "write {{name}}"
         },
         {
@@ -676,7 +676,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "-sum by (name) (rate(ceph_pool_rd[1m]) * on(pool_id) group_left(name) ceph_pool_metadata)",
+          "expr": "-(sum by (name) (rate(ceph_pool_rd[1m]) * on(pool_id) group_left(name) ceph_pool_metadata) > 0)",
           "legendFormat": "read {{name}}"
         }
       ],

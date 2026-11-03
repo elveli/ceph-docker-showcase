@@ -8,6 +8,23 @@ source "$(dirname "$0")/lib.sh"
 mode="${1:-full}"
 require_cluster
 
+# `compose up --wait` returns once one-shot jobs are *running*; for the
+# summary after `make up`, wait until init has finished and health settled.
+init_done() {
+  local state
+  state="$(docker inspect -f '{{.State.Status}} {{.State.ExitCode}}' "$(compose ps -aq init)")"
+  if [[ "$state" == exited* && "$state" != "exited 0" ]]; then
+    compose logs init >&2
+    die "init job failed ($state)"
+  fi
+  [[ "$state" == "exited 0" ]]
+}
+if [[ "$mode" == "--summary" ]]; then
+  wait_for "init job (mgr modules, dashboard user)" 180 init_done
+  wait_for "HEALTH_OK with all PGs active+clean" 180 bash -c \
+    "docker compose exec -T mon-a ceph health | grep -q HEALTH_OK && docker compose exec -T mon-a ceph pg stat | grep -Eq '^[0-9]+ pgs: [0-9]+ active\+clean;'"
+fi
+
 banner "Ceph cluster status"
 run ceph -s
 

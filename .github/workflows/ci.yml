@@ -1,0 +1,50 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: shellcheck --version && shellcheck -x scripts/*.sh docker/ceph/entrypoint.sh
+      - name: docker compose config (all profiles)
+        run: |
+          docker compose config -q
+          docker compose --profile '*' config -q
+
+  smoke:
+    # Full end-to-end run: bootstrap a real cluster and run every demo.
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Load nbd (rbd-nbd needs it; containers cannot load modules)
+        run: sudo modprobe nbd nbds_max=16 && ls /dev/nbd0
+      - name: make up
+        run: make up
+      - name: make demo
+        run: make demo
+      - name: Diagnostics on failure
+        if: failure()
+        run: |
+          docker compose --profile '*' ps -a
+          docker compose exec -T mon-a ceph -s || true
+          docker compose exec -T mon-a ceph health detail || true
+          docker compose --profile '*' logs --tail=200
+      - name: make clean
+        if: always()
+        run: make clean

@@ -55,13 +55,13 @@ VICTIM="$(ceph osd map "$POOL" obj-1 | sed -E 's/.*acting \(\[[0-9,]*\], p([0-9]
 [[ "$VICTIM" =~ ^[0-9]+$ ]] || die "could not determine primary OSD"
 ok "victim is osd.$VICTIM (container osd-$VICTIM)"
 
-step "Kill osd-$VICTIM (SIGKILL, like a crashed host or pulled disk)" \
-  "No graceful shutdown, so the MONs only learn about it from missed heartbeats (osd_heartbeat_grace, ~20s)."
+step "Kill osd-$VICTIM (SIGKILL, like a crashed daemon)" \
+  "No graceful shutdown. The kernel closes the dead process's sockets, so peers get connection-refused and report it at once (osd_fast_fail_on_connection_refused). A host that silently lost power would be caught by missed heartbeats after osd_heartbeat_grace (20s) instead."
 run compose --progress quiet kill "osd-$VICTIM"
 killed_at=$SECONDS
 wait_for "MONs to mark osd.$VICTIM down" 120 bash -c "docker compose exec -T mon-a ceph osd dump | grep -E '^osd\\.$VICTIM ' | grep -q ' down '"
-
 wait_for "PGs to finish re-peering on the survivors" 120 bash -c "! docker compose exec -T mon-a ceph pg stat | grep -q peering"
+wait_for "health to report degraded PGs" 60 bash -c "docker compose exec -T mon-a ceph health | grep -q 'Degraded data redundancy'"
 
 step "The cluster is degraded but available"
 run ceph health detail
