@@ -226,6 +226,10 @@ run_init() {
   log "enabling mgr modules: dashboard, prometheus"
   ceph mgr module enable dashboard
   ceph mgr module enable prometheus
+  # On by default, but these daemons aren't cephadm-deployed: left on, it
+  # eventually flags all of them CEPHADM_STRAY_DAEMON (HEALTH_WARN).
+  log "disabling mgr module: cephadm"
+  ceph mgr module disable cephadm
   ceph config set mgr mgr/dashboard/server_addr 0.0.0.0
   ceph config set mgr mgr/dashboard/ssl_server_port 8443
   ceph config set mgr mgr/prometheus/server_addr 0.0.0.0

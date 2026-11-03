@@ -26,6 +26,7 @@ explained where they first matter, with AWS analogies where they help. New to th
 - [Quickstart](#quickstart)
 - [What the demos show](#what-the-demos-show)
 - [Ceph concepts in this repo](#ceph-concepts-in-this-repo) (what RADOS is, plus a glossary)
+- [CLI cheat sheet](#cli-cheat-sheet)
 - [Design decisions](#design-decisions)
 - [Docker Desktop constraints and how they're handled](#docker-desktop-constraints-and-how-theyre-handled)
 - [Observability](#observability)
@@ -254,6 +255,120 @@ Every Ceph term and acronym used in this repo, A–Z.
 | **size** | The number of replicas per object (3 here). |
 | **Tentacle** | The codename of Ceph release 20.x. Releases are named alphabetically after cephalopods (Reef 18, Squid 19, Tentacle 20). |
 | **undersized** | A PG with fewer OSDs in its acting set than `size`, because CRUSH can't find enough eligible OSDs. This happens with 3 OSDs and one out. |
+
+---
+
+## CLI cheat sheet
+
+Run these inside `make shell`, which opens bash in `mon-a` with the admin keyring. Pool, image, bucket and user
+names match what `make demo` creates. Every command here was run against this cluster. Most read-only commands
+accept `-f json-pretty`.
+
+### Cluster health: start here
+
+| Command | What it tells you |
+|---|---|
+| `ceph -s` | One-screen summary: health, MON quorum, MGR, OSDs up/in, PG states, capacity, client I/O. |
+| `ceph health detail` | *Why* the cluster isn't HEALTH_OK, one line per affected PG/OSD/daemon. |
+| `ceph -w` | `ceph -s`, then a live stream of the cluster log (Ctrl-C to stop). Run it during `make demo-failure`. |
+| `ceph df` | Raw capacity, plus per-pool stored bytes vs. used bytes. Used is roughly stored × `size`. |
+| `ceph osd df tree` | Per-OSD fill level, PG count and variance, laid out as the CRUSH tree. |
+| `ceph versions` | Which Ceph version each daemon runs. Useful during upgrades. |
+| `ceph crash ls` | Daemon crash reports collected by the `crash` module. |
+
+### MONs, MGR and OSDs
+
+| Command | What it tells you |
+|---|---|
+| `ceph mon stat` | MON addresses, current leader and quorum members. |
+| `ceph quorum_status -f json-pretty` | The full quorum view, including election epoch and the monmap. |
+| `ceph mgr services` | URLs exposed by MGR modules (dashboard, Prometheus). These are container-internal addresses. |
+| `ceph mgr module ls` | Which MGR modules are on, off, or always on. |
+| `ceph osd tree` | The CRUSH hierarchy, with each OSD's up/down and weight. |
+| `ceph osd stat` | Counts: how many OSDs exist, are up, and are in. |
+| `ceph osd set noout` / `ceph osd unset noout` | Stop down OSDs from being marked out (and data from moving). Set it before planned maintenance. |
+| `ceph osd out 1` / `ceph osd in 1` | Manually take an OSD out of data placement, or put it back. |
+| `ceph daemon mon.a mon_status` | Ask a daemon directly over its admin socket. This only works in the container running that daemon. |
+| `ceph tell osd.0 version` | Send a command to a remote daemon through the cluster, from anywhere. |
+
+### Pools, PGs and placement
+
+| Command | What it tells you |
+|---|---|
+| `ceph osd pool ls detail` | Every pool with its `size`, `min_size`, PG count, CRUSH rule and application. |
+| `ceph osd pool get rbd size` | One pool setting. `set` changes it, for example `ceph osd pool set demo size 2`. |
+| `ceph osd pool autoscale-status` | What the PG autoscaler thinks each pool's PG count should be. |
+| `ceph osd map demo obj-1` | Where an object lives: the PG it hashes to, and the ordered OSD list (primary first). No lookup involved. |
+| `ceph pg stat` | One-line PG state summary, such as `X pgs: X active+clean`. |
+| `ceph pg dump pgs_brief` | Every PG with its up/acting OSD sets and primary. |
+| `ceph pg 12.3 query` | Everything about one PG: peering history, last scrub, recovery state. |
+| `ceph pg deep-scrub 12.3` | Ask for a byte-for-byte replica comparison of one PG now. |
+| `ceph osd crush rule dump replicated_rule` | The steps CRUSH follows, here `take default` → `choose_firstn … type osd` → `emit`. |
+
+### Config and auth
+
+| Command | What it tells you |
+|---|---|
+| `ceph config dump` | Everything set in the MONs' central config database. Includes secrets, such as the dashboard's RGW keys. |
+| `ceph config get osd osd_memory_target` | The value in the central database. |
+| `ceph config show osd.0 osd_memory_target` | The value the daemon is *actually running with*. Here it differs from `config get`, because the 896 MiB setting comes from `ceph.conf`, which the central database doesn't see. |
+| `ceph config set osd debug_osd 5/5` | Change a setting cluster-wide at runtime. `ceph config rm osd debug_osd` reverts it. |
+| `ceph auth ls` | Every cephx identity and its caps. This prints secret keys. |
+| `ceph auth get client.admin` | One identity's key and caps, in keyring format. |
+
+### RADOS: raw objects
+
+| Command | What it does |
+|---|---|
+| `rados lspools` | List pools. |
+| `rados df` | Per-pool object counts, copies, degraded/missing objects and I/O totals. |
+| `rados -p demo ls` | List the objects in a pool. |
+| `rados -p demo put myobj /etc/hosts` / `rados -p demo get myobj -` | Write a file as an object, and read it back to stdout. |
+| `rados -p demo stat obj-1` | An object's size and mtime. |
+| `rados -p demo rm myobj` | Delete an object. |
+
+### RBD: block devices
+
+| Command | What it does |
+|---|---|
+| `rbd ls -l rbd` | Images and snapshots in the `rbd` pool, with sizes. |
+| `rbd info rbd/demo-disk` | Size, object size (4 MiB), features, and `block_name_prefix`, the prefix of its RADOS objects. |
+| `rbd du rbd/demo-disk` | Provisioned vs. actually used space. Thin provisioning in action. |
+| `rbd snap ls rbd/demo-disk` | Snapshots. `rbd snap create rbd/demo-disk@name` makes one, and `rbd snap rollback` reverts to it. |
+| `rbd create rbd/disk2 --size 1G` / `rbd rm rbd/disk2` | Create or delete an image. Map it from `client-a` with `rbd-nbd map`, as `demo-block.sh` does. |
+
+### CephFS
+
+| Command | What it tells you |
+|---|---|
+| `ceph fs ls` | Filesystems and their metadata and data pools. |
+| `ceph fs status` | MDS ranks, active vs. standby, client count, and pool usage. |
+| `ceph mds stat` | One-line MDS state, for example `cephfs:1 {0=a=up:active}`. |
+| `ceph fs volume ls` / `ceph fs subvolume ls cephfs` | Volumes and subvolumes managed by the `volumes` MGR module. This is the API that Kubernetes CSI uses. |
+| `ceph fs authorize cephfs client.x / rw` | Create a key limited to one filesystem and path. Fetch it afterwards with `ceph auth get client.x`. |
+
+### radosgw-admin: S3 users, buckets and objects
+
+`radosgw-admin` talks to RADOS directly, not through RGW's HTTP API. It is the admin tool for things S3
+itself can't do: users, keys, quotas and internals.
+
+| Command | What it does |
+|---|---|
+| `radosgw-admin user list` | List RGW users. `dashboard` is created by the dashboard's Object pages, and `demo` by `make demo-object`. |
+| `radosgw-admin user info --uid=demo` | A user's access/secret keys, caps and quotas. This prints secrets. |
+| `radosgw-admin user create --uid=alice --display-name="Alice"` | Create a user and generate an S3 key pair. |
+| `radosgw-admin key create --uid=alice --gen-access-key --gen-secret` | Add another key pair, for rotation. `key rm --access-key=…` removes one. |
+| `radosgw-admin user stats --uid=demo --sync-stats` | Bytes and object counts used by a user. |
+| `radosgw-admin quota set --quota-scope=user --uid=demo --max-size=1G` | Set a quota, then turn it on with `radosgw-admin quota enable --quota-scope=user --uid=demo`. |
+| `radosgw-admin bucket list` | All buckets. With `--bucket=showcase` it lists that bucket's objects instead. |
+| `radosgw-admin bucket stats --bucket=showcase` | Owner, size, object count, index shards and placement. |
+| `radosgw-admin object stat --bucket=showcase --object=sample.bin` | An object's size, ETag, metadata and manifest (how it is split into RADOS objects). |
+| `radosgw-admin bucket radoslist --bucket=showcase` | The RADOS object names behind every S3 object in the bucket. |
+| `radosgw-admin gc list` | RADOS objects waiting for garbage collection after an S3 delete. Space is freed asynchronously. |
+| `radosgw-admin zonegroup get` / `zone get` | Multisite topology. Here that's the single `default` zonegroup and zone. |
+
+Not available here: `ceph orch …`. Its orchestrator backends (cephadm, Rook) aren't used in this repo,
+because Compose plays that role. See [Why Docker Compose, not cephadm or Rook](#why-docker-compose-not-cephadm-or-rook).
 
 ---
 
